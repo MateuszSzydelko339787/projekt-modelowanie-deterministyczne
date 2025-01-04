@@ -1,25 +1,34 @@
 import numpy as np
+import matplotlib.pyplot as plt
 from collections import deque
-
-
-def starting_temperature(x, y):
-    return np.exp(-(x+1)**2 - (y+1)**2)
-
-
-wymiary_x = [[-1, 0], [0, 1]]
-wymiary_y = [[-1, 1], [-1, 1/2]]
 
 h = 0.1
 ht = 0.001
 T = 1
 n = int(T/ht)
 moc_grzejnika = 1500
+rows, cols = 121, 111
+
+
+def celsius_to_kelvin(temp):
+    return temp + 273.15
+
+
+def kelvin_to_celsius(temp):
+    return temp - 273.15
+
+
+def starting_temperature(_, __):
+    return celsius_to_kelvin(21)
+
+
+def calculate_outdoor_temperature():
+    return celsius_to_kelvin(5)
 
 
 def create_plan():
-    rows, cols = 121, 111
     tab = np.zeros((rows, cols))
-    arr = np.zeros((rows, cols), str)
+    arr = np.zeros((rows, cols), dtype='<U10')
     for j in range(cols):
         tab[0][j] = 1
         tab[1][j] = 1
@@ -147,7 +156,7 @@ def create_plan():
     for i in range(90, 114):
         tab[i][109] = 3
         tab[i][110] = 3
-
+    '''
     for j in range(38, 49):
         tab[2][j] = 4
     for j in range(59, 70):
@@ -166,6 +175,7 @@ def create_plan():
         tab[71][j] = 4
     for i in range(65, 70):
         tab[i][76] = 4
+    '''
 
     for i in range(41, rows):
         for j in range(13):
@@ -191,24 +201,23 @@ def create_plan():
 plan = create_plan()
 
 
-def celsius_to_kelvin(temp):
-    return temp + 273.15
+def create_tab():
+    t = np.zeros((rows, cols))
+    for i in range(rows):
+        for j in range(cols):
+            if plan[i][j] == "room" or plan[i][j] == "wall" or plan[i][j] == "heater":
+                t[i][j] = starting_temperature(i, j)
+            elif plan[i][j] == "window" or plan[i][j] == "outside":
+                t[i][j] = calculate_outdoor_temperature()
+    return t
 
 
-def kelvin_to_celsius(temp):
-    return temp - 273.15
-
-
-def calculate_outdoor_temperature():
-    return celsius_to_kelvin(5)
+X = create_tab()
 
 
 def gestosc(temp_w_kelwinach):
     return 101300 * 0.0289 / 8.31446261815324 / temp_w_kelwinach
     #      ciśnienie, efektywna masa molowa, uniwersalna stała gazowa
-
-
-max_temp = celsius_to_kelvin(22)
 
 
 def calculate_doors(x, y, t):
@@ -270,6 +279,7 @@ def calculate_room_temperature(x, y, t, i, j):
 
 def calculate_heater(x, y, t):
     vis = np.zeros((x, y))
+    max_temp = celsius_to_kelvin(22)
     for i in range(x):
         for j in range(y):
             if plan[i][j] == 'heater' and not vis[i][j]:
@@ -309,8 +319,33 @@ def calculate_room(x, y, t):
 def calculate_wall(x, y, t):
     for i in range(x):
         for j in range(y):
-            if plan[i][j] == 'wall':
+            if plan[i][j] == 'wall' or plan[i][j] == 'door':
                 for neigh in [[1, 0], [-1, 0], [0, 1], [0, -1]]:
+                    if i + neigh[0] < 0 or i + neigh[0] >= x or j + neigh[1] < 0 or j + neigh[1] >= y:
+                        continue
                     if plan[i + neigh[0]][j + neigh[1]] == "room" or plan[i + neigh[0]][j + neigh[1]] == "heater":
                         t[i][j] = t[i + neigh[0]][j + neigh[1]]
     return t
+
+
+def main(t):
+    for step in range(n):
+        t = calculate_room(rows, cols, t)
+        t = calculate_wall(rows, cols, t)
+        t = calculate_doors(rows, cols, t)
+        t = calculate_windows(rows, cols, t)
+        t = calculate_heater(rows, cols, t)
+    return t
+
+
+def change_to_celsius(t):
+    for i in range(rows):
+        for j in range(cols):
+            t[i][j] = kelvin_to_celsius(t[i][j])
+    return t
+
+
+X = main(X)
+X = change_to_celsius(X)
+plt.imshow(X)
+plt.show()
