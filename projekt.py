@@ -1,14 +1,15 @@
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.animation as animation
 from collections import deque
 
 h = 0.1
 ht = 0.001
 T = 1
-n = int(T/ht)
+n = int(T/ht / 10)
 moc_grzejnika = 1500
 rows, cols = 121, 111
-D = 1
+D = 2.5
 
 
 def celsius_to_kelvin(temp):
@@ -27,12 +28,29 @@ def calculate_outdoor_temperature():
     return celsius_to_kelvin(5)
 
 
+def change_to_celsius(t):
+    for i in range(rows):
+        for j in range(cols):
+            t[i][j] = kelvin_to_celsius(X[i][j])
+    return t
+
+
+def change_to_kelwin(t):
+    for i in range(rows):
+        for j in range(cols):
+            t[i][j] = celsius_to_kelvin(X[i][j])
+    return t
+
+
 windows = []
 walls = []
 doors = []
 heaters = []
 outside = []
 rooms = []
+
+
+animations = []
 
 
 def create_plan():
@@ -304,7 +322,7 @@ def create_tab():
     t = np.zeros((rows, cols))
     for i in range(rows):
         for j in range(cols):
-            if plan[i][j] == "room" or plan[i][j] == "wall" or plan[i][j] == "heater":
+            if plan[i][j] == "room" or plan[i][j] == "wall" or plan[i][j] == "heater" or plan[i][j] == "door":
                 t[i][j] = starting_temperature(i, j)
             elif plan[i][j] == "window" or plan[i][j] == "outside":
                 t[i][j] = calculate_outdoor_temperature()
@@ -312,6 +330,7 @@ def create_tab():
 
 
 X = create_tab()
+animations.append(change_to_celsius(X.copy()))
 
 
 def gestosc(temp_w_kelwinach):
@@ -417,6 +436,12 @@ def calculate_wall(x, y):
                 X[e[0]][e[1]] = X[e[0] + neigh[0]][e[1] + neigh[1]]
 
 
+def update(frame):
+    for ind, heatmap in enumerate(heatmaps):
+        heatmap.set_array(animations[frame])
+    return heatmaps
+
+
 def main():
     for step in range(n):
         calculate_room()
@@ -424,16 +449,18 @@ def main():
         calculate_doors(rows, cols)
         calculate_windows()
         calculate_heater(rows, cols)
-
-
-def change_to_celsius(t):
-    for i in range(rows):
-        for j in range(cols):
-            X[i][j] = kelvin_to_celsius(X[i][j])
-    return t
+        animations.append(change_to_celsius(X.copy()))
 
 
 main()
 X = change_to_celsius(X)
 plt.imshow(X)
+plt.show()
+
+fig, axs = plt.subplots(1, 1, figsize=(15, 5))
+heatmaps = [axs.imshow(animations[0], extent=(10, -10, -10, 10), origin="upper", animated=True, vmin=5, vmax=25)]
+
+
+anim = animation.FuncAnimation(fig, update, frames=n-1, blit=True, interval=0.1)
+plt.tight_layout()
 plt.show()
