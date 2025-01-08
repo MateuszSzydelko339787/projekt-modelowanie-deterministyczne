@@ -51,6 +51,7 @@ windows = []
 walls = []
 doors = []
 heaters = []
+heaters_use = []
 outside = []
 rooms = []
 
@@ -172,7 +173,12 @@ def create_plan():
         tab[i][33] = 2
         doors.append([i, 32])
         doors.append([i, 33])
-    for i in range(34, 50):
+    for i in range(12, 21):
+        tab[i][53] = 2
+        tab[i][54] = 2
+        doors.append([i, 53])
+        doors.append([i, 54])
+    for i in range(32, 48):
         tab[i][53] = 2
         tab[i][54] = 2
         doors.append([i, 53])
@@ -267,30 +273,39 @@ def create_plan():
     for i in range(15, 26):
         tab[i][2] = 4
         heaters.append([i, 2])
+    heaters_use.append([15, 2])
     for i in range(65, 70):
         tab[i][76] = 4
         heaters.append([i, 76])
+    heaters_use.append([65, 76])
     for i in range(93, 105):
         tab[i][108] = 4
         heaters.append([i, 108])
+    heaters_use.append([93, 108])
     for j in range(38, 49):
         tab[2][j] = 4
         heaters.append([2, j])
+    heaters_use.append([2, 38])
     for j in range(59, 70):
         tab[2][j] = 4
         heaters.append([2, j])
+    heaters_use.append([2, 59])
     for j in range(26, 30):
         tab[56][j] = 4
         heaters.append([56, j])
+    heaters_use.append([56, 26])
     for j in range(26, 30):
         tab[71][j] = 4
         heaters.append([71, j])
+    heaters_use.append([71, 26])
     for j in range(29, 39):
         tab[118][j] = 4
         heaters.append([118, j])
+    heaters_use.append([118, 29])
     for j in range(65, 74):
         tab[118][j] = 4
         heaters.append([118, j])
+    heaters_use.append([118, 65])
 
     for i in range(41, rows):
         for j in range(13):
@@ -346,6 +361,7 @@ def create_tab():
 
 
 X = create_tab()
+vis = np.zeros((rows, cols))
 animations.append(change_to_celsius(X.copy()))
 
 
@@ -355,7 +371,6 @@ def gestosc(temp_w_kelwinach):
 
 
 def calculate_doors():
-    vis = np.zeros((rows, cols))
     for elem in doors:
         if not vis[elem[0]][elem[1]]:
             l = [[elem[0], elem[1]]]
@@ -377,6 +392,8 @@ def calculate_doors():
             s = s / len(l)
             for e in l:
                 X[e[0]][e[1]] = s
+    for elem in doors:
+        vis[elem[0], elem[1]] = 0
 
 
 def calculate_windows(times):
@@ -389,19 +406,17 @@ def calculate_windows(times):
                     continue
                 if plan[b[0]][b[1]] == 'heater' or plan[b[0]][b[1]] == 'room':
                     X[elem[0]][elem[1]] = trans * calculate_outdoor_temperature() + (1 - trans) * X[b[0]][b[1]]
-        pass
     else:
         for elem in windows:
             X[elem[0]][elem[1]] = calculate_outdoor_temperature()
 
 
 def calculate_room_temperature(i, j):
-    vis = np.zeros((rows, cols))
     q = deque()
     q.append([i, j])
     s = X[i][j]
-    l = 1
-    vis[i][j] = True
+    l = [(i, j)]
+    vis[i][j] = 1
     while len(q):
         a = q.pop()
         for neighbour in [[1, 0], [-1, 0], [0, 1], [0, -1]]:
@@ -410,38 +425,36 @@ def calculate_room_temperature(i, j):
                 continue
             if (plan[b[0]][b[1]] == 'heater' or plan[b[0]][b[1]] == 'room') and not vis[b[0]][b[1]]:
                 q.append((b[0], b[1]))
-                l += 1
+                l.append((b[0], b[1]))
                 s += X[b[0]][b[1]]
-                vis[b[0]][b[1]] = True
-    s = s / l
+                vis[b[0]][b[1]] = 1
+    s = s / len(l)
+    for elem in l:
+        vis[elem[0]][elem[1]] = 0
     return s
 
 
 def calculate_heater():
-    vis = np.zeros((rows, cols))
     max_temp = celsius_to_kelvin(20)
-    for elem in heaters:
-        if not vis[elem[0]][elem[1]]:
-            if calculate_room_temperature(elem[0], elem[1]) < max_temp:
-                l = [[elem[0], elem[1]]]
-                q = deque()
-                q.append([elem[0], elem[1]])
-                s = X[elem[0]][elem[1]]
-                vis[elem[0]][elem[1]] = True
-                while len(q):
-                    a = q.pop()
-                    for neighbour in [[1, 0], [-1, 0], [0, 1], [0, -1]]:
-                        b = [a[0] + neighbour[0], a[1] + neighbour[1]]
-                        if b[0] < 0 or b[0] >= rows or b[1] < 0 or b[1] >= cols:
-                            continue
-                        if plan[b[0]][b[1]] == 'heater' and not vis[b[0]][b[1]]:
-                            q.append((b[0], b[1]))
-                            l.append((b[0], b[1]))
-                            s += X[b[0]][b[1]]
-                            vis[b[0]][b[1]] = True
-                s = s / len(l)
-                for e in l:
-                    X[e[0]][e[1]] += moc_grzejnika / (gestosc(s) * len(l) * 1005 / 10)
+    for elem in heaters_use:
+        if calculate_room_temperature(elem[0], elem[1]) < max_temp:
+            l = [[elem[0], elem[1]]]
+            q = deque()
+            q.append([elem[0], elem[1]])
+            s = X[elem[0]][elem[1]]
+            while len(q):
+                a = q.pop()
+                for neighbour in [[1, 0], [0, 1]]:
+                    b = [a[0] + neighbour[0], a[1] + neighbour[1]]
+                    if b[0] < 0 or b[0] >= rows or b[1] < 0 or b[1] >= cols:
+                        continue
+                    if plan[b[0]][b[1]] == 'heater':
+                        q.append((b[0], b[1]))
+                        l.append((b[0], b[1]))
+                        s += X[b[0]][b[1]]
+            s = s / len(l)
+            for e in l:
+                X[e[0]][e[1]] += moc_grzejnika / (gestosc(s) * len(l) * 1005 / 10)
 
 
 def calculate_room():
