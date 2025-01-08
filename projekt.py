@@ -6,10 +6,15 @@ from collections import deque
 h = 0.1
 ht = 0.001
 T = 1
-n = int(T/ht / 10)
+n = int(T/ht)
 moc_grzejnika = 1500
 rows, cols = 121, 111
 D = 2.5
+
+
+def calculate_time(t):
+    t = t % (60 * 24)
+    return t, t//60, t % 60  # czas w minutach, godzina, minuty
 
 
 def celsius_to_kelvin(temp):
@@ -315,6 +320,13 @@ def create_plan():
     return arr
 
 
+def is_closed(times):
+    t, hours, minutes = calculate_time(times)
+    if hours in [1, 8, 18, 22]:
+        return False
+    return True
+
+
 plan = create_plan()
 
 
@@ -324,7 +336,11 @@ def create_tab():
         for j in range(cols):
             if plan[i][j] == "room" or plan[i][j] == "wall" or plan[i][j] == "heater" or plan[i][j] == "door":
                 t[i][j] = starting_temperature(i, j)
-            elif plan[i][j] == "window" or plan[i][j] == "outside":
+            elif plan[i][j] == "outside":
+                t[i][j] = calculate_outdoor_temperature()
+            elif is_closed(0):
+                t[i][j] = starting_temperature(i, j)
+            else:
                 t[i][j] = calculate_outdoor_temperature()
     return t
 
@@ -335,11 +351,11 @@ animations.append(change_to_celsius(X.copy()))
 
 def gestosc(temp_w_kelwinach):
     return 101325 / (287.05 * temp_w_kelwinach)
-    #      ciśnienie, efektywna masa molowa, uniwersalna stała gazowa
+    #      ciśnienie, efektywna masa molowa * uniwersalna stała gazowa
 
 
-def calculate_doors(x, y):
-    vis = np.zeros((x, y))
+def calculate_doors():
+    vis = np.zeros((rows, cols))
     for elem in doors:
         if not vis[elem[0]][elem[1]]:
             l = [[elem[0], elem[1]]]
@@ -351,7 +367,7 @@ def calculate_doors(x, y):
                 a = q.pop()
                 for neighbour in [[1, 0], [-1, 0], [0, 1], [0, -1]]:
                     b = [a[0] + neighbour[0], a[1] + neighbour[1]]
-                    if b[0] < 0 or b[0] >= x or b[1] < 0 or b[1] >= y:
+                    if b[0] < 0 or b[0] >= rows or b[1] < 0 or b[1] >= cols:
                         continue
                     if plan[b[0]][b[1]] == 'door' and not vis[b[0]][b[1]]:
                         q.append((b[0], b[1]))
@@ -363,13 +379,24 @@ def calculate_doors(x, y):
                 X[e[0]][e[1]] = s
 
 
-def calculate_windows():
-    for elem in windows:
-        X[elem[0]][elem[1]] = calculate_outdoor_temperature()
+def calculate_windows(times):
+    if is_closed(times):
+        trans = 0
+        for elem in windows:
+            for neighbour in [[1, 0], [-1, 0], [0, 1], [0, -1]]:
+                b = [elem[0] + neighbour[0], elem[1] + neighbour[1]]
+                if b[0] < 0 or b[0] >= rows or b[1] < 0 or b[1] >= cols:
+                    continue
+                if plan[b[0]][b[1]] == 'heater' or plan[b[0]][b[1]] == 'room':
+                    X[elem[0]][elem[1]] = trans * calculate_outdoor_temperature() + (1 - trans) * X[b[0]][b[1]]
+        pass
+    else:
+        for elem in windows:
+            X[elem[0]][elem[1]] = calculate_outdoor_temperature()
 
 
-def calculate_room_temperature(x, y, i, j):
-    vis = np.zeros((x, y))
+def calculate_room_temperature(i, j):
+    vis = np.zeros((rows, cols))
     q = deque()
     q.append([i, j])
     s = X[i][j]
@@ -379,7 +406,7 @@ def calculate_room_temperature(x, y, i, j):
         a = q.pop()
         for neighbour in [[1, 0], [-1, 0], [0, 1], [0, -1]]:
             b = [a[0] + neighbour[0], a[1] + neighbour[1]]
-            if b[0] < 0 or b[0] >= x or b[1] < 0 or b[1] >= y:
+            if b[0] < 0 or b[0] >= rows or b[1] < 0 or b[1] >= cols:
                 continue
             if (plan[b[0]][b[1]] == 'heater' or plan[b[0]][b[1]] == 'room') and not vis[b[0]][b[1]]:
                 q.append((b[0], b[1]))
@@ -390,12 +417,12 @@ def calculate_room_temperature(x, y, i, j):
     return s
 
 
-def calculate_heater(x, y):
-    vis = np.zeros((x, y))
+def calculate_heater():
+    vis = np.zeros((rows, cols))
     max_temp = celsius_to_kelvin(20)
     for elem in heaters:
         if not vis[elem[0]][elem[1]]:
-            if calculate_room_temperature(x, y, elem[0], elem[1]) < max_temp:
+            if calculate_room_temperature(elem[0], elem[1]) < max_temp:
                 l = [[elem[0], elem[1]]]
                 q = deque()
                 q.append([elem[0], elem[1]])
@@ -405,7 +432,7 @@ def calculate_heater(x, y):
                     a = q.pop()
                     for neighbour in [[1, 0], [-1, 0], [0, 1], [0, -1]]:
                         b = [a[0] + neighbour[0], a[1] + neighbour[1]]
-                        if b[0] < 0 or b[0] >= x or b[1] < 0 or b[1] >= y:
+                        if b[0] < 0 or b[0] >= rows or b[1] < 0 or b[1] >= cols:
                             continue
                         if plan[b[0]][b[1]] == 'heater' and not vis[b[0]][b[1]]:
                             q.append((b[0], b[1]))
@@ -414,11 +441,11 @@ def calculate_heater(x, y):
                             vis[b[0]][b[1]] = True
                 s = s / len(l)
                 for e in l:
-                    X[e[0]][e[1]] += moc_grzejnika / (gestosc(s) * len(l) * 1005)
+                    X[e[0]][e[1]] += moc_grzejnika / (gestosc(s) * len(l) * 1005 / 10)
 
 
 def calculate_room():
-    new = X
+    new = X.copy()
     for elem in rooms + heaters:
         new[elem[0], elem[1]] = X[elem[0], elem[1]] + D * ht / (h**2)*(X[elem[0]+1, elem[1]] + X[elem[0]-1, elem[1]] +
                                                                        X[elem[0], elem[1]+1] + X[elem[0], elem[1]-1] -
@@ -427,40 +454,42 @@ def calculate_room():
         X[elem[0]][elem[1]] = new[elem[0]][elem[1]]
 
 
-def calculate_wall(x, y):
+def calculate_wall():
     for e in walls + doors:
         for neigh in [[1, 0], [-1, 0], [0, 1], [0, -1]]:
-            if e[0] + neigh[0] < 0 or e[0] + neigh[0] >= x or e[1] + neigh[1] < 0 or e[1] + neigh[1] >= y:
+            if e[0] + neigh[0] < 0 or e[0] + neigh[0] >= rows or e[1] + neigh[1] < 0 or e[1] + neigh[1] >= cols:
                 continue
             if plan[e[0] + neigh[0]][e[1] + neigh[1]] == "room" or plan[e[0] + neigh[0]][e[1] + neigh[1]] == "heater":
                 X[e[0]][e[1]] = X[e[0] + neigh[0]][e[1] + neigh[1]]
 
 
-def update(frame):
-    for ind, heatmap in enumerate(heatmaps):
-        heatmap.set_array(animations[frame])
-    return heatmaps
-
-
 def main():
     for step in range(n):
         calculate_room()
-        calculate_wall(rows, cols)
-        calculate_doors(rows, cols)
-        calculate_windows()
-        calculate_heater(rows, cols)
+        calculate_heater()
+        calculate_wall()
+        calculate_windows(step)
+        calculate_doors()
         animations.append(change_to_celsius(X.copy()))
 
 
+def show():
+    def update(frame):
+        for ind, heatmap in enumerate(heatmaps):
+            heatmap.set_array(animations[frame])
+        return heatmaps
+    plt.imshow(change_to_celsius(X))
+    plt.show()
+
+    fig, axs = plt.subplots(1, 1, figsize=(10, 5))
+    heatmaps = [axs.imshow(animations[0], extent=(10, -10, -10, 10), origin="upper", animated=True, vmin=5, vmax=50)]
+
+    anim = animation.FuncAnimation(fig, update, frames=n-1, blit=True, interval=1)
+    plt.tight_layout()
+    # writer = animation.PillowWriter(fps=15, metadata=dict(artist='Me'), bitrate=1800)
+    # anim.save('animacja.gif', writer=writer)
+    plt.show()
+
+
 main()
-X = change_to_celsius(X)
-plt.imshow(X)
-plt.show()
-
-fig, axs = plt.subplots(1, 1, figsize=(15, 5))
-heatmaps = [axs.imshow(animations[0], extent=(10, -10, -10, 10), origin="upper", animated=True, vmin=5, vmax=25)]
-
-
-anim = animation.FuncAnimation(fig, update, frames=n-1, blit=True, interval=0.1)
-plt.tight_layout()
-plt.show()
+show()
