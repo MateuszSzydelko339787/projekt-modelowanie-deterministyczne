@@ -2,6 +2,11 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 from collections import deque
+import openmeteo_requests
+import requests_cache
+import pandas as pd
+from retry_requests import retry
+
 
 h = 0.1
 ht = 0.001
@@ -10,6 +15,7 @@ n = int(T/ht)
 moc_grzejnika = 1500
 rows, cols = 121, 111
 D = 2.5
+total_energy = 0
 
 
 def calculate_time(t):
@@ -29,8 +35,50 @@ def starting_temperature(_, __):
     return celsius_to_kelvin(19)
 
 
-def calculate_outdoor_temperature():
-    return celsius_to_kelvin(5)
+def setup_temperature():
+    """
+    kod i dane ze strony:
+    https://open-meteo.com/en/docs/historical-weather-api#start_date=2024-12-01&end_date=2024-12-31
+    """
+    cache_session = requests_cache.CachedSession('.cache', expire_after=-1)
+    retry_session = retry(cache_session, retries=5, backoff_factor=0.2)
+    openmeteo = openmeteo_requests.Client(session=retry_session)
+
+    url = "https://archive-api.open-meteo.com/v1/archive"
+    params = {
+        "latitude": 52.52,
+        "longitude": 13.41,
+        "start_date": "2024-12-01",
+        "end_date": "2024-12-31",
+        "hourly": "temperature_2m"
+    }
+    responses = openmeteo.weather_api(url, params=params)
+
+    response = responses[0]
+
+    hourly = response.Hourly()
+    hourly_temperature_2m = hourly.Variables(0).ValuesAsNumpy()
+
+    hourly_data = dict(date=pd.date_range(
+        start=pd.to_datetime(hourly.Time(), unit="s", utc=True),
+        end=pd.to_datetime(hourly.TimeEnd(), unit="s", utc=True),
+        freq=pd.Timedelta(seconds=hourly.Interval()),
+        inclusive="left"
+    ))
+    hourly_data["temperature_2m"] = hourly_temperature_2m
+
+    hourly_dataframe = pd.DataFrame(data=hourly_data)
+    tab = np.array(hourly_dataframe)
+    for elem in tab:
+        elem[1] = celsius_to_kelvin(elem[1])
+    return tab
+
+
+outdoors_temperature = setup_temperature()
+
+
+def calculate_outdoor_temperature(times):
+    return outdoors_temperature[times//60][1]
 
 
 def change_to_celsius(t):
@@ -54,8 +102,6 @@ heaters = []
 heaters_use = []
 outside = []
 rooms = []
-
-
 animations = []
 
 
@@ -342,6 +388,13 @@ def is_closed(times):
     return True
 
 
+def is_working(times):
+    t, hours, minutes = calculate_time(times)
+    if hours in [1, 8, 9, 10, 11, 12, 16, 17, 18, 19, 20, 21]:
+        return True
+    return False
+
+
 plan = create_plan()
 
 
@@ -352,11 +405,11 @@ def create_tab():
             if plan[i][j] == "room" or plan[i][j] == "wall" or plan[i][j] == "heater" or plan[i][j] == "door":
                 t[i][j] = starting_temperature(i, j)
             elif plan[i][j] == "outside":
-                t[i][j] = calculate_outdoor_temperature()
+                t[i][j] = calculate_outdoor_temperature(0)
             elif is_closed(0):
                 t[i][j] = starting_temperature(i, j)
             else:
-                t[i][j] = calculate_outdoor_temperature()
+                t[i][j] = calculate_outdoor_temperature(0)
     return t
 
 
@@ -405,10 +458,10 @@ def calculate_windows(times):
                 if b[0] < 0 or b[0] >= rows or b[1] < 0 or b[1] >= cols:
                     continue
                 if plan[b[0]][b[1]] == 'heater' or plan[b[0]][b[1]] == 'room':
-                    X[elem[0]][elem[1]] = trans * calculate_outdoor_temperature() + (1 - trans) * X[b[0]][b[1]]
+                    X[elem[0]][elem[1]] = trans * calculate_outdoor_temperature(times) + (1 - trans) * X[b[0]][b[1]]
     else:
         for elem in windows:
-            X[elem[0]][elem[1]] = calculate_outdoor_temperature()
+            X[elem[0]][elem[1]] = calculate_outdoor_temperature(times)
 
 
 def calculate_room_temperature(i, j):
@@ -434,27 +487,30 @@ def calculate_room_temperature(i, j):
     return s
 
 
-def calculate_heater():
-    max_temp = celsius_to_kelvin(20)
-    for elem in heaters_use:
-        if calculate_room_temperature(elem[0], elem[1]) < max_temp:
-            l = [[elem[0], elem[1]]]
-            q = deque()
-            q.append([elem[0], elem[1]])
-            s = X[elem[0]][elem[1]]
-            while len(q):
-                a = q.pop()
-                for neighbour in [[1, 0], [0, 1]]:
-                    b = [a[0] + neighbour[0], a[1] + neighbour[1]]
-                    if b[0] < 0 or b[0] >= rows or b[1] < 0 or b[1] >= cols:
-                        continue
-                    if plan[b[0]][b[1]] == 'heater':
-                        q.append((b[0], b[1]))
-                        l.append((b[0], b[1]))
-                        s += X[b[0]][b[1]]
-            s = s / len(l)
-            for e in l:
-                X[e[0]][e[1]] += moc_grzejnika / (gestosc(s) * len(l) * 1005 / 10)
+def calculate_heater(times):
+    if is_working(times):
+        global total_energy
+        max_temp = celsius_to_kelvin(20)
+        for elem in heaters_use:
+            if calculate_room_temperature(elem[0], elem[1]) < max_temp:
+                l = [[elem[0], elem[1]]]
+                q = deque()
+                q.append([elem[0], elem[1]])
+                s = X[elem[0]][elem[1]]
+                while len(q):
+                    a = q.pop()
+                    for neighbour in [[1, 0], [0, 1]]:
+                        b = [a[0] + neighbour[0], a[1] + neighbour[1]]
+                        if b[0] < 0 or b[0] >= rows or b[1] < 0 or b[1] >= cols:
+                            continue
+                        if plan[b[0]][b[1]] == 'heater':
+                            q.append((b[0], b[1]))
+                            l.append((b[0], b[1]))
+                            s += X[b[0]][b[1]]
+                s = s / len(l)
+                for e in l:
+                    X[e[0]][e[1]] += moc_grzejnika / (gestosc(s) * len(l) * 1005 / 10)
+                    total_energy += moc_grzejnika / (gestosc(s) * len(l) * 1005 / 10)
 
 
 def calculate_room():
@@ -476,12 +532,18 @@ def calculate_wall():
                 X[e[0]][e[1]] = X[e[0] + neigh[0]][e[1] + neigh[1]]
 
 
+def calculate_outdoors(times):
+    for elem in outside:
+        X[elem[0]][elem[1]] = calculate_outdoor_temperature(times)
+
+
 def main():
     for step in range(n):
         calculate_room()
-        calculate_heater()
+        calculate_heater(step)
         calculate_wall()
         calculate_windows(step)
+        calculate_outdoors(step)
         calculate_doors()
         animations.append(change_to_celsius(X.copy()))
 
@@ -506,3 +568,4 @@ def show():
 
 main()
 show()
+print(total_energy)
