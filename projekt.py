@@ -77,10 +77,18 @@ class Door(Tile):
             l = [[self.x, self.y]]
             q = deque()
             q.append([self.x, self.y])
-            s = X[self.x][self.y]
-            vis[self.x][self.y] = True
+            s = 0
+            vis[self.x][self.y] = 1
             while len(q):
                 a = q.pop()
+                for neighbour in [[1, 0], [-1, 0], [0, 1], [0, -1]]:
+                    b = [a[0] + neighbour[0], a[1] + neighbour[1]]
+                    new[a[0]][a[1]] = X[a[0]][a[1]]
+                    if b[0] < 0 or b[0] >= rows or b[1] < 0 or b[1] >= cols:
+                        continue
+                    if plan[b[0]][b[1]] == 'room' or plan[b[0]][b[1]] == 'heater':
+                        new[a[0]][a[1]] = X[b[0]][b[1]]
+                s += new[a[0]][a[1]]
                 for neighbour in [[1, 0], [-1, 0], [0, 1], [0, -1]]:
                     b = [a[0] + neighbour[0], a[1] + neighbour[1]]
                     if b[0] < 0 or b[0] >= rows or b[1] < 0 or b[1] >= cols:
@@ -88,11 +96,10 @@ class Door(Tile):
                     if plan[b[0]][b[1]] == 'door' and not vis[b[0]][b[1]]:
                         q.append((b[0], b[1]))
                         l.append((b[0], b[1]))
-                        s += X[b[0]][b[1]]
-                        vis[b[0]][b[1]] = True
+                        vis[b[0]][b[1]] = 1
             s = s / len(l)
-            for e in l:
-                X[e[0]][e[1]] = s
+            for [i, j] in l:
+                new[i][j] = s
 
 
 class Window(Tile):
@@ -110,8 +117,6 @@ class Window(Tile):
 
 
 class Heater(Tile):
-    # 6, 7, 14 - 22
-
     def calculate_room_temperature(self):
         q = deque()
         q.append([self.x, self.y])
@@ -131,17 +136,15 @@ class Heater(Tile):
                     vis[b[0]][b[1]] = 1
         s = s / len(l)
         for elem in l:
-            vis[elem[0]][elem[1]] = 0
+            vis[elem[0]][elem[1]] = s
         return s
 
     def calculate_tile(self, times):
-        new[self.x, self.y] = (X[self.x, self.y] + D * ht / (h ** 2) *
-                               (X[self.x + 1, self.y] + X[self.x - 1, self.y] + X[self.x, self.y + 1] +
-                                X[self.x, self.y - 1] - 4 * X[self.x, self.y]))
-        if is_working(times):
+        if is_working(times) and not vis[self.x][self.y]:
             global total_energy
             max_temp = celsius_to_kelvin(20)
-            if self.calculate_room_temperature() < max_temp:
+            average_temperature = vis[self.x][self.y] if vis[self.x][self.y] else self.calculate_room_temperature()
+            if average_temperature < max_temp:
                 l = [[self.x, self.y]]
                 q = deque()
                 q.append([self.x, self.y])
@@ -158,8 +161,11 @@ class Heater(Tile):
                             s += X[b[0]][b[1]]
                 s = s / len(l)
                 for e in l:
-                    new[e[0]][e[1]] += moc_grzejnika / (gestosc(s) * len(l) * 1005 / 10)
+                    pom[e[0]][e[1]] = moc_grzejnika / (gestosc(s) * len(l) * 1005 / 10)
                     total_energy += moc_grzejnika / (gestosc(s) * len(l) * 1005 / 10)
+        new[self.x, self.y] = (X[self.x, self.y] + D * ht / (h ** 2) *
+                               (X[self.x + 1, self.y] + X[self.x - 1, self.y] + X[self.x, self.y + 1] +
+                                X[self.x, self.y - 1] - 4 * X[self.x, self.y]) + pom[self.x][self.y])
 
 
 class Outdoors(Tile):
@@ -225,13 +231,6 @@ def change_to_celsius(t):
     return t
 
 
-def change_to_kelwin(t):
-    for i in range(rows):
-        for j in range(cols):
-            t[i][j] = celsius_to_kelvin(X[i][j])
-    return t
-
-
 windows = []
 walls = []
 doors = []
@@ -242,6 +241,7 @@ rooms = []
 animations = []
 outdoors_temperature = setup_temperature()
 X_class = [[Tile(i, j, celsius_to_kelvin(starting_temperature(i, j))) for i in range(cols)] for j in range(rows)]
+pom = [[0 for i in range(cols)] for j in range(rows)]
 
 
 def create_plan():
@@ -555,8 +555,11 @@ def main():
         for i in range(rows):
             for j in range(cols):
                 X_class[i][j].calculate_tile(step)
-        for [i, j] in rooms + heaters:
+        for [i, j] in rooms + heaters + doors:
             X[i, j] = new[i, j]
+        for [i, j] in doors + heaters:
+            vis[i, j] = 0
+            pom[i][j] = 0
         animations.append(change_to_celsius(X.copy()))
 
 
