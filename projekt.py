@@ -9,8 +9,7 @@ from retry_requests import retry
 
 h = 0.1
 ht = 0.001
-T = 1
-n = int(T/ht)
+n = 60 * 24             # cały dzień
 moc_grzejnika = 1500
 rows, cols = 121, 111
 D = 2.5
@@ -33,14 +32,15 @@ def calculate_outdoor_temperature(times):
 
 def is_closed(times):
     t, hours, minutes = calculate_time(times)
-    if hours in [1, 5, 16, 22]:
+    # if hours in [5, 16, 22]:
+    if (hours == 5 and minutes >= 45) or (hours == 16 and minutes >= 45) or (hours == 22 and minutes < 15):
         return False
     return True
 
 
 def is_working(times):
     t, hours, minutes = calculate_time(times)
-    if hours in [1, 6, 7, 14, 15, 16, 17, 18, 19, 20, 21]:
+    if hours in [6, 7, 14, 15, 16, 17, 18, 19, 20, 21]:
         return True
     return False
 
@@ -72,7 +72,29 @@ class Wall(Tile):
 
 
 class Door(Tile):
+    def act_as_a_wall(self):
+        if not vis[self.x][self.y]:
+            l = [[self.x, self.y]]
+            q = deque()
+            q.append([self.x, self.y])
+            vis[self.x][self.y] = 1
+            while len(q):
+                a = q.pop()
+                for neighbour in [[1, 0], [-1, 0], [0, 1], [0, -1]]:
+                    b = [a[0] + neighbour[0], a[1] + neighbour[1]]
+                    if b[0] < 0 or b[0] >= rows or b[1] < 0 or b[1] >= cols:
+                        continue
+                    if plan[b[0]][b[1]] == 'door' and not vis[b[0]][b[1]]:
+                        q.append((b[0], b[1]))
+                        l.append((b[0], b[1]))
+                        vis[b[0]][b[1]] = 1
+                    elif plan[b[0]][b[1]] == 'room' or plan[b[0]][b[1]] == 'heater':
+                        X[a[0]][a[1]] = X[b[0]][b[1]]
+            for [i, j] in l:
+                vis[i][j] = 0
+
     def calculate_tile(self, times):
+        self.act_as_a_wall()
         if not vis[self.x][self.y]:
             l = [[self.x, self.y]]
             q = deque()
@@ -81,14 +103,7 @@ class Door(Tile):
             vis[self.x][self.y] = 1
             while len(q):
                 a = q.pop()
-                for neighbour in [[1, 0], [-1, 0], [0, 1], [0, -1]]:
-                    b = [a[0] + neighbour[0], a[1] + neighbour[1]]
-                    new[a[0]][a[1]] = X[a[0]][a[1]]
-                    if b[0] < 0 or b[0] >= rows or b[1] < 0 or b[1] >= cols:
-                        continue
-                    if plan[b[0]][b[1]] == 'room' or plan[b[0]][b[1]] == 'heater':
-                        new[a[0]][a[1]] = X[b[0]][b[1]]
-                s += new[a[0]][a[1]]
+                s += X[a[0]][a[1]]
                 for neighbour in [[1, 0], [-1, 0], [0, 1], [0, -1]]:
                     b = [a[0] + neighbour[0], a[1] + neighbour[1]]
                     if b[0] < 0 or b[0] >= rows or b[1] < 0 or b[1] >= cols:
@@ -235,7 +250,6 @@ windows = []
 walls = []
 doors = []
 heaters = []
-heaters_use = []
 outside = []
 rooms = []
 animations = []
@@ -458,39 +472,30 @@ def create_plan():
     for i in range(15, 26):
         tab[i][2] = 4
         heaters.append([i, 2])
-    heaters_use.append([15, 2])
     for i in range(65, 70):
         tab[i][76] = 4
         heaters.append([i, 76])
-    heaters_use.append([65, 76])
     for i in range(93, 105):
         tab[i][108] = 4
         heaters.append([i, 108])
-    heaters_use.append([93, 108])
     for j in range(38, 49):
         tab[2][j] = 4
         heaters.append([2, j])
-    heaters_use.append([2, 38])
     for j in range(59, 70):
         tab[2][j] = 4
         heaters.append([2, j])
-    heaters_use.append([2, 59])
     for j in range(26, 30):
         tab[56][j] = 4
         heaters.append([56, j])
-    heaters_use.append([56, 26])
     for j in range(26, 30):
         tab[71][j] = 4
         heaters.append([71, j])
-    heaters_use.append([71, 26])
     for j in range(29, 39):
         tab[118][j] = 4
         heaters.append([118, j])
-    heaters_use.append([118, 29])
     for j in range(65, 74):
         tab[118][j] = 4
         heaters.append([118, j])
-    heaters_use.append([118, 65])
 
     for i in range(41, rows):
         for j in range(13):
