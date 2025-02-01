@@ -11,33 +11,63 @@ import time
 start_time = time.time()
 
 
-h = 0.2
-ht = 0.4            # 0.4 sekundy
-T = 3600 * 24       # godzina
-n = int(T/ht)
+# Parametry symulacji
+h = 0.2  # Krok przestrzenny (w metrach)
+ht = 0.4  # Krok czasowy (w sekundach)
+T = 3600 * 24  # Czas trwania symulacji (jeden dzień w sekundach)
+n = int(T / ht)  # Liczba kroków czasowych
 
-moc_grzejnika = 2000
-rows, cols = 60, 55
-D = 0.025
-total_energy = 0
-start_hour = 12
-always_working = False
+moc_grzejnika = 2000  # Moc grzejnika w watach
+rows, cols = 60, 55  # Rozmiar siatki (liczba wierszy i kolumn)
+D = 0.025  # Współczynnik dyfuzji ciepła
+total_energy = 0  # Całkowita energia zużyta przez grzejniki
+start_hour = 12  # Godzina rozpoczęcia symulacji
+always_working = False  # Zmienna pomocnicza do sprawdzania czy jest grzanie jest ciągle aktywne
 
 
 def gestosc(_):
+    """Zwraca gęstość powietrza (stała wartość)."""
     return 1.1225
 
 
 def calculate_time(t):
+    """
+    Przelicza krok czasowy na czas w sekundach, godzinach i minutach.
+
+    Args:
+        t (int): Numer kroku czasowego.
+
+    Returns:
+        tuple: (czas w sekundach, godzina, minuta)
+    """
+
     t = t % int((60 * 60 * 24) / ht)
     return int(t*ht), t//(int(3600 / ht)), int(int(((t * ht) % 3600) / 60))  # czas w sekundach, godzinach, minutach
 
 
 def calculate_outdoor_temperature(times):
+    """
+    Zwraca temperaturę na zewnątrz dla danego kroku czasowego.
+
+    Args:
+        times (int): Numer kroku czasowego.
+
+    Returns:
+        float: Temperatura na zewnątrz w kelwinach.
+    """
     return outdoors_temperature[times//int(3600/ht)][1]
 
 
 def is_closed(times):
+    """
+    Sprawdza, czy okna są zamknięte w danym kroku czasowym.
+
+    Args:
+        times (int): Numer kroku czasowego.
+
+    Returns:
+        bool: True, jeśli okna są zamknięte, False w przeciwnym razie.
+    """
     t, hours, minutes = calculate_time(times)
     if (hours == 6 and minutes < 5) or (hours == 16 and minutes >= 55) or (hours == 20 and minutes >= 55):
         return False
@@ -45,6 +75,15 @@ def is_closed(times):
 
 
 def is_working(times):
+    """
+    Sprawdza, czy grzejniki są włączone w danym kroku czasowym.
+
+    Args:
+        times (int): Numer kroku czasowego.
+
+    Returns:
+        bool: True, jeśli grzejniki są włączone, False w przeciwnym razie.
+    """
     if always_working:
         return True
     t, hours, minutes = calculate_time(times)
@@ -54,24 +93,53 @@ def is_working(times):
 
 
 class Tile:
+    """
+    Klasa bazowa reprezentująca pojedynczy element siatki (kafelek).
+
+    Attributes:
+        x (int): Współrzędna x kafelka.
+        y (int): Współrzędna y kafelka.
+        temp (float): Temperatura kafelka.
+    """
     def __init__(self, x, y, temp):
         self.x = x
         self.y = y
         self.temp = temp
 
     def calculate_tile(self, times):
+        """Metoda do obliczania nowej temperatury kafelka."""
         pass
 
 
 class Room(Tile):
+    """
+    Klasa reprezentująca pokój. Dziedziczy po klasie Tile.
+    """
+
     def calculate_tile(self, times):
+        """
+        Oblicza nową temperaturę kafelka pokoju na podstawie temperatury sąsiednich kafelków.
+
+        Args:
+            times (int): Numer kroku czasowego.
+        """
         new[self.x, self.y] = (X[self.x, self.y] + D * ht / (h ** 2) *
                                (X[self.x + 1, self.y] + X[self.x - 1, self.y] + X[self.x, self.y + 1] +
                                 X[self.x, self.y - 1] - 4 * X[self.x, self.y]))
 
 
 class Wall(Tile):
+    """
+    Klasa reprezentująca ścianę. Dziedziczy po klasie Tile.
+    """
+
     def calculate_tile(self, times):
+        """
+        Oblicza nową temperaturę kafelka ściany na podstawie temperatury sąsiednich kafelków.
+
+        Args:
+            times (int): Numer kroku czasowego.
+        """
         for neigh in [[1, 0], [-1, 0], [0, 1], [0, -1]]:
             if self.x + neigh[0] < 0 or self.x + neigh[0] >= rows or self.y + neigh[1] < 0 or self.y + neigh[1] >= cols:
                 continue
@@ -93,7 +161,17 @@ class Wall(Tile):
 
 
 class Door(Tile):
+    """
+    Klasa reprezentująca drzwi. Dziedziczy po klasie Tile.
+    """
+
     def calculate_tile(self, times):
+        """
+        Oblicza nową temperaturę kafelka drzwi na podstawie temperatury sąsiednich kafelków.
+
+        Args:
+            times (int): Numer kroku czasowego.
+        """
         if not vis[self.x][self.y]:
             l = [[self.x, self.y]]
             q = deque()
@@ -127,7 +205,17 @@ class Door(Tile):
 
 
 class Window(Tile):
+    """
+    Klasa reprezentująca okno. Dziedziczy po klasie Tile.
+    """
+
     def calculate_tile(self, times):
+        """
+        Oblicza nową temperaturę kafelka okna na podstawie temperatury na zewnątrz i wewnątrz.
+
+        Args:
+            times (int): Numer kroku czasowego.
+        """
         if is_closed(times):
             trans = 0
             for neighbour in [[1, 0], [-1, 0], [0, 1], [0, -1]]:
@@ -141,7 +229,17 @@ class Window(Tile):
 
 
 class Heater(Tile):
+    """
+    Klasa reprezentująca grzejnik. Dziedziczy po klasie Tile.
+    """
+
     def calculate_room_temperature(self):
+        """
+        Oblicza średnią temperaturę w pomieszczeniu, w którym znajduje się grzejnik.
+
+        Returns:
+            float: Średnia temperatura w pomieszczeniu.
+        """
         q = deque()
         q.append([self.x, self.y])
         s = X[self.x][self.y]
@@ -165,6 +263,12 @@ class Heater(Tile):
         return s
 
     def calculate_tile(self, times):
+        """
+        Oblicza nową temperaturę kafelka grzejnika i zużycie energii.
+
+        Args:
+            times (int): Numer kroku czasowego.
+        """
         if is_working(times) and not vis[self.x][self.y]:
             global total_energy
             max_temp = celsius_to_kelvin(20)
@@ -191,24 +295,67 @@ class Heater(Tile):
 
 
 class Outdoors(Tile):
+    """
+    Klasa reprezentująca przestrzeń na zewnątrz. Dziedziczy po klasie Tile.
+    """
+
     def calculate_tile(self, times):
+        """
+        Ustawia temperaturę kafelka na zewnątrz na podstawie danych z API pogodowego.
+
+        Args:
+            times (int): Numer kroku czasowego.
+        """
         X[self.x][self.y] = calculate_outdoor_temperature(times)
 
 
 def celsius_to_kelvin(temp):
+    """
+    Przelicza temperaturę z stopni Celsjusza na Kelviny.
+
+    Args:
+        temp (float): Temperatura w stopniach Celsjusza.
+
+    Returns:
+        float: Temperatura w Kelwinach.
+    """
     return temp + 273.15
 
 
 def kelvin_to_celsius(temp):
+    """
+    Przelicza temperaturę z Kelwinów na stopnie Celsjusza.
+
+    Args:
+        temp (float64): Temperatura w Kelwinach.
+
+    Returns:
+        float: Temperatura w stopniach Celsjusza.
+    """
     return temp - 273.15
 
 
 def starting_temperature(_, __):
+    """
+    Zwraca początkową temperaturę w pomieszczeniu (19°C przeliczoną na Kelviny).
+
+    Returns:
+        float: Temperatura w Kelwinach.
+    """
     return celsius_to_kelvin(19)
 
 
 def setup_temperature(start_date, end_date):
     """
+    Pobiera dane temperatury zewnętrznej z API pogodowego i zwraca je w formie tablicy.
+
+    Args:
+            start_date (string): Data początkowa.
+            end_date (string): Data początkowa.
+
+    Returns:
+        np.array: Tablica z danymi temperatury na zewnątrz.
+
     kod i dane ze strony:
     https://open-meteo.com/en/docs/historical-weather-api#start_date=2024-12-01&end_date=2024-12-31
     """
@@ -247,6 +394,15 @@ def setup_temperature(start_date, end_date):
 
 
 def change_to_celsius(t):
+    """
+    Przelicza temperaturę z Kelwinów na stopnie Celsjusza dla całej siatki.
+
+    Args:
+        t (np.array): Tablica z temperaturą w Kelwinach.
+
+    Returns:
+        np.array: Tablica z temperaturą w stopniach Celsjusza.
+    """
     for i in range(rows):
         for j in range(cols):
             t[i][j] = kelvin_to_celsius(X[i][j])
@@ -268,6 +424,12 @@ pom2 = [[0 for i in range(cols)] for j in range(rows)]
 
 
 def create_tab():
+    """
+    Tworzy początkową siatkę temperatur na podstawie planu pomieszczeń.
+
+    Returns:
+        np.array: Tablica z początkowymi temperaturami.
+    """
     t = np.zeros((rows, cols))
     for i in range(rows):
         for j in range(cols):
@@ -283,6 +445,9 @@ def create_tab():
 
 
 def main():
+    """
+    Główna funkcja symulacji, która wykonuje kolejne kroki czasowe i aktualizuje temperaturę.
+    """
     animations.append(change_to_celsius(X.copy()))
     for step in range(int(3600 * start_hour / ht), int(3600 * start_hour / ht) + n):
         for i in range(rows):
@@ -300,6 +465,15 @@ def main():
 
 
 def show(save=""):
+    """
+    Wyświetla animację zmian temperatury w czasie.
+
+    Args:
+        save (str): Nazwa pliku, do którego ma zostać zapisana animacja.
+
+    Returns:
+        animation.FuncAnimation: Obiekt animacji.
+    """
     def update(frame):
         if frame >= len(animations):
             print(f"Błąd: Próba dostępu do klatki {frame}, która nie istnieje (długość animations: {len(animations)})")
